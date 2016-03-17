@@ -13,9 +13,21 @@ typedef struct {
 } Rule;
 
 
+
 int main(int argc, char **argv) {
     if (argc <= 1) {
-        // TODO: Usage guide goes here
+        printf("\n");
+        printf("USAGE:  %s  rule_file  [rule_file  ...]\n", argv[0]);
+        printf("\n");
+        printf("Input words are read from STDIN, mangled words are written on STDOUT\n");
+        printf("All rule files are unioned together and duplicate rules are removed\n");
+        printf("For a cross product of rules, pipe this program into another instance of itself\n");
+        printf("\n");
+        printf("\n");
+        printf("EXAMPLE:\n");
+        printf("    %s  best64.rule  <  words.txt\n", argv[0]);
+        printf("    some_process  |  %s  leetspeak.rule  combinator.rule\n", argv[0]);
+        printf("\n");
         return 0;
     }
 
