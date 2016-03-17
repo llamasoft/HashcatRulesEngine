@@ -1,18 +1,39 @@
-/**
- * Author......: Jens Steube <jens.steube@gmail.com>
- * License.....: MIT
- */
+// =============================================================================
+// Original Author: Jens Steube <jens.steube@gmail.com>
+// Modified By:     llamasoft   <llamasoft@users.noreply.github.com>
+// License: MIT
+// =============================================================================
 
 #ifndef RP_H
 #define RP_H
 
- #include <string.h>
+#if __STDC_VERSION__ < 199901L
+    #error C99 compatibility is required
+#endif
 
-#define BLOCK_SIZE      0x040
-#define RP_RULE_BUFSIZ  0x100
+#include <stdio.h>
+#include <string.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <limits.h>
 
-#define RULE_RC_SYNTAX_ERROR  -1
-#define RULE_RC_REJECT_ERROR  -2
+// Input is truncated to BLOCK_SIZE - 1 bytes
+// Rules which push the output over BLOCK_SIZE - 1 are skipped
+#ifndef BLOCK_SIZE
+    #define BLOCK_SIZE 64
+#endif
+
+
+enum RULE_RC {
+    INVALID_INPUT = -99,
+    PREMATURE_END_OF_RULE,
+    UNKNOWN_RULE_OP,
+    INVALID_POSITIONAL,
+    MEMORY_ERROR,
+    REJECTED,
+    UNKNOWN_ERROR
+};
+
 
 #define RULE_OP_MANGLE_NOOP             ':'
 #define RULE_OP_MANGLE_LREST            'l'
@@ -39,7 +60,6 @@
 #define RULE_OP_MANGLE_TRUNCATE_AT      '\''
 #define RULE_OP_MANGLE_REPLACE          's'
 #define RULE_OP_MANGLE_PURGECHAR        '@'
-#define RULE_OP_MANGLE_TOGGLECASE_REC   'a'
 #define RULE_OP_MANGLE_DUPECHAR_FIRST   'z'
 #define RULE_OP_MANGLE_DUPECHAR_LAST    'Z'
 #define RULE_OP_MANGLE_DUPECHAR_ALL     'q'
@@ -74,11 +94,6 @@
 #define RULE_OP_MANGLE_TITLE            'E'
 
 
-bool class_num(char c);
-bool class_lower(char c);
-bool class_upper(char c);
-bool class_alpha(char c);
-
-int apply_rule(char *rule, int rule_len, char in[BLOCK_SIZE], int in_len, char out[BLOCK_SIZE]);
+int apply_rule(char *rule, int rule_len, char *in, int in_len, char out[BLOCK_SIZE]);
 
 #endif /* RP_H */
