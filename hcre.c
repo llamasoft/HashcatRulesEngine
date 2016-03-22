@@ -3,14 +3,6 @@
 #include <stdio.h>
 #include <string.h>
 #include "rules.h"
-#include "uthash.h"
-
-
-typedef struct {
-    char  *text;
-    size_t length;
-    UT_hash_handle hh;
-} Rule;
 
 
 
@@ -32,16 +24,12 @@ int main(int argc, char **argv) {
     }
 
 
-    // I would kill for a vector right now
-    unsigned int rule_arr_len     =   0;
-    unsigned int rule_arr_len_max = 128;
-
     Rule *rules     = NULL; // Our hash structure's head node
     Rule *cur_rule  = NULL; // We read into/from our hash using this
     Rule *rule_temp = NULL; // Temp object for safe HASH_ITER usage
     char rule_output[BLOCK_SIZE];
 
-    // getline will read into this
+    // getline() will read into this
     char   *line     = NULL;
     int     line_num = 0;
     ssize_t line_len = 0;
@@ -60,6 +48,7 @@ int main(int argc, char **argv) {
         }
 
 
+        // Read each rule from the input file
         while ( !feof(rule_file) ) {
             line_num++;
             line_len = getline(&line, &line_malloc_size, rule_file);
@@ -74,6 +63,9 @@ int main(int argc, char **argv) {
 
             // We've read a rule!
             // Step one: make sure it's not a duplicate
+            // This is a dumb duplicate check; it doesn't check if it generates
+            //   the same output as a different rule, it just checks if this
+            //   exact sequence of operations has appeared elsewhere
             HASH_FIND_STR(rules, line, cur_rule);
             if (cur_rule) {
                 fprintf(stderr, "%s:%d - skipping duplicate rule '%s'\n", file_name, line_num, line);
@@ -142,8 +134,9 @@ int main(int argc, char **argv) {
             #endif
 
             // Output the mangled word and a newline
-            fputs(rule_output, stdout);
-            fputc('\n',        stdout);
+            // puts(rule_output);
+            rule_output[rule_rtn] = '\n';
+            fwrite(rule_output, rule_rtn + 1, 1, stdout);
         }
     }
 

@@ -121,11 +121,11 @@ int mangle_toggle_all(char str[BLOCK_SIZE], int str_len)
 // Reverse a string
 int mangle_reverse(char str[BLOCK_SIZE], int str_len)
 {
-    for (int a = 0; a < str_len; a++) {
-        int z = str_len - 1 - a;
-        if (a >= z) { break; }
+    char temp[BLOCK_SIZE];
+    memcpy(temp, str, str_len);
 
-        mangle_switch(str, a, z);
+    for (int i = 0; i < str_len; i++) {
+        str[i] = temp[str_len - i - 1];
     }
 
     return(str_len);
@@ -137,7 +137,7 @@ int mangle_double(char str[BLOCK_SIZE], int str_len)
 {
     if ((str_len * 2) >= BLOCK_SIZE) { return(str_len); }
 
-    memcpy(&str[str_len], str, (size_t) str_len);
+    memcpy(&str[str_len], str, (size_t)str_len);
     return(str_len * 2);
 }
 
@@ -174,9 +174,18 @@ int mangle_reflect(char str[BLOCK_SIZE], int str_len)
 // Rotates a string left one character
 int mangle_rotate_left(char str[BLOCK_SIZE], int str_len)
 {
-    for (int a = 0, z = str_len - 1; z > a; z--) {
-        mangle_switch(str, a, z);
+    if (str_len < 2) { return(str_len); }
+
+    // Save the first character
+    char temp = str[0];
+
+    // Shift everything left
+    for (int str_pos = 0; str_pos < str_len - 1; str_pos++) {
+        str[str_pos] = str[str_pos + 1];
     }
+
+    // Put the first character at the end
+    str[str_len - 1] = temp;
 
     return(str_len);
 }
@@ -185,9 +194,18 @@ int mangle_rotate_left(char str[BLOCK_SIZE], int str_len)
 // Rotates a string right one character
 int mangle_rotate_right(char str[BLOCK_SIZE], int str_len)
 {
-    for (int a = 0, z = str_len - 1; a < z; a++) {
-        mangle_switch(str, a, z);
+    if (str_len < 2) { return(str_len); }
+
+    // Save the last character
+    char temp = str[str_len - 1];
+
+    // Shift everything right
+    for (int str_pos = str_len - 1; str_pos > 0; str_pos--) {
+        str[str_pos] = str[str_pos - 1];
     }
+
+    // Place the last character at the front
+    str[0] = temp;
 
     return(str_len);
 }
@@ -209,11 +227,8 @@ int mangle_prepend(char str[BLOCK_SIZE], int str_len, char c)
 {
     if ((str_len + 1) >= BLOCK_SIZE) { return(str_len); }
 
-    for (int str_pos = str_len - 1; str_pos > -1; str_pos--) {
-        str[str_pos + 1] = str[str_pos];
-    }
-
-    str[0] = c;
+    str[str_len] = c;
+    mangle_rotate_right(str, str_len + 1);
 
     return(str_len + 1);
 }
@@ -236,7 +251,9 @@ int mangle_delete_at(char str[BLOCK_SIZE], int str_len, int offset)
 int mangle_extract(char str[BLOCK_SIZE], int str_len, int offset, int substr_len)
 {
     if (offset >= str_len || offset < 0) { return(str_len); }
-    if ((offset + substr_len) > str_len) { return(str_len); }
+
+    // substr_len is too large, shorten it so it fits within this string
+    if ((offset + substr_len) > str_len) { substr_len = str_len - offset; }
 
     for (int str_pos = 0; str_pos < substr_len; str_pos++) {
         str[str_pos] = str[offset + str_pos];
@@ -249,8 +266,12 @@ int mangle_extract(char str[BLOCK_SIZE], int str_len, int offset, int substr_len
 // Removes substr_len characters starting at offset
 int mangle_omit(char str[BLOCK_SIZE], int str_len, int offset, int substr_len)
 {
-    if (offset >= str_len || offset < 0) { return(str_len); }
-    if ((offset + substr_len) > str_len) { return(str_len); }
+    if (offset >= str_len) { return(str_len); }
+
+    // We know offset is within the string, shorten substr_len
+    //   so that offset + substr_len stays within the string
+    // This effectively skips the for loop and turns this into a truncate
+    if ((offset + substr_len) > str_len) { substr_len = str_len - offset; }
 
     for (int str_pos = offset; str_pos < str_len - substr_len; str_pos++) {
         str[str_pos] = str[str_pos + substr_len];
@@ -322,7 +343,8 @@ int mangle_truncate_at(char str[BLOCK_SIZE], int str_len, int offset)
 {
     if (offset >= str_len || offset < 0) { return(str_len); }
 
-    memset(str + offset, 0, str_len - offset);
+    // Not explicitly required, just messing with str to suppress a gcc warning
+    str[offset] = 0;
 
     return(offset);
 }
@@ -359,40 +381,29 @@ int mangle_purgechar(char str[BLOCK_SIZE], int str_len, char c)
 
 // Duplicate the first substr_len characters, prepending them to the string
 //   str = "Apple", substr_len = 3, result = "AppApple"
-// TODO: optimize with memcpy()
 int mangle_dupeblock_prepend(char str[BLOCK_SIZE], int str_len, int substr_len)
 {
-    if (substr_len > str_len) { return(str_len); }
+    if (substr_len > str_len || substr_len < 1) { return(str_len); }
     if ((str_len + substr_len) >= BLOCK_SIZE) { return(str_len); }
 
-    char cs[BLOCK_SIZE];
-    memcpy(cs, str, substr_len);
-
-    for (int i = 0; i < substr_len; i++) {
-        char c = cs[i];
-        str_len = mangle_insert(str, str_len, i, c);
+    for (int str_pos = str_len - 1; str_pos >= 0; str_pos--) {
+        str[substr_len + str_pos] = str[str_pos];
     }
 
-    return(str_len);
+    return(str_len + substr_len);
 }
 
 
 // Duplicate the first substr_len characters, appending them to the string
 //   str = "Apple", substr_len = 3, result = "AppleApp"
-// TODO: optimize with memcpy()
 int mangle_dupeblock_append(char str[BLOCK_SIZE], int str_len, int substr_len)
 {
-    if (substr_len > str_len) { return(str_len); }
+    if (substr_len > str_len || substr_len < 1) { return(str_len); }
     if ((str_len + substr_len) >= BLOCK_SIZE) { return(str_len); }
 
-    int offset = str_len - substr_len;
-    for (int i = 0; i < substr_len; i++) {
-        char c = str[offset + i];
+    memcpy(&str[str_len], str, substr_len);
 
-        str_len = mangle_append(str, str_len, c);
-    }
-
-    return(str_len);
+    return(str_len + substr_len);
 }
 
 
@@ -518,6 +529,215 @@ int mangle_title(char str[BLOCK_SIZE], int str_len)
 }
 
 
+// Doesn't actually run the rule, but checks it for validity and does some preprocessing
+//   e.g. removing noops, converting positionals to raw values, etc
+// In theory, this will make apply_rule be faster as it will require fewer validations
+int validate_rule(Rule *input_rule, Rule *output_rule) {
+    if (input_rule == NULL) { return (INVALID_INPUT); }
+
+    char *rule     = input_rule->text;
+    int   rule_len = input_rule->length;
+    if (rule == NULL) { return (INVALID_INPUT); }
+    if (rule_len < 1) { return (INVALID_INPUT); }
+
+
+    // Our new rule is guaranteed to be no larger than the current rule
+    // Note: realloc(NULL, size) is the same as malloc(size)
+    char *new_rule     = (char *)realloc(output_rule->text, sizeof(char) * output_rule->length);
+    int   new_rule_len = 0;
+    memset(new_rule, 0, rule_len);
+
+    int errno = 0;
+    int mem_len = 0;
+    int temp_int;
+
+    // Our cursor positions for the rule
+    int rule_pos = 0;
+    for (rule_pos = 0; rule_pos < rule_len; rule_pos++) {
+        // Always copy the operation
+        new_rule[new_rule_len++] = rule[rule_pos];
+
+        switch (rule[rule_pos]) {
+            // Whitespace and noops
+            case ' ':
+            case '\t':
+            case '\r':
+            case RULE_OP_MANGLE_NOOP:
+                // Un-copy the noop
+                new_rule[new_rule_len--] = 0;
+                break;
+
+            // No parameters
+            case RULE_OP_MANGLE_LREST:
+            case RULE_OP_MANGLE_UREST:
+            case RULE_OP_MANGLE_LREST_UFIRST:
+            case RULE_OP_MANGLE_UREST_LFIRST:
+            case RULE_OP_MANGLE_TREST:
+            case RULE_OP_MANGLE_REVERSE:
+            case RULE_OP_MANGLE_DUPEWORD:
+            case RULE_OP_MANGLE_REFLECT:
+            case RULE_OP_MANGLE_ROTATE_LEFT:
+            case RULE_OP_MANGLE_ROTATE_RIGHT:
+            case RULE_OP_MANGLE_DELETE_FIRST:
+            case RULE_OP_MANGLE_DELETE_LAST:
+            case RULE_OP_MANGLE_DUPECHAR_ALL:
+            case RULE_OP_MANGLE_SWITCH_FIRST:
+            case RULE_OP_MANGLE_SWITCH_LAST:
+            case RULE_OP_MANGLE_TITLE:
+                // Operation already copied, nothing to do
+                break;
+
+            // Integer
+            case RULE_OP_MANGLE_TOGGLE_AT:
+            case RULE_OP_MANGLE_DUPEWORD_TIMES:
+            case RULE_OP_MANGLE_DELETE_AT:
+            case RULE_OP_MANGLE_TRUNCATE_AT:
+            case RULE_OP_MANGLE_DUPECHAR_FIRST:
+            case RULE_OP_MANGLE_DUPECHAR_LAST:
+            case RULE_OP_MANGLE_DUPEBLOCK_FIRST:
+            case RULE_OP_MANGLE_DUPEBLOCK_LAST:
+            case RULE_OP_MANGLE_CHR_SHIFTL:
+            case RULE_OP_MANGLE_CHR_SHIFTR:
+            case RULE_OP_MANGLE_CHR_INCR:
+            case RULE_OP_MANGLE_CHR_DECR:
+            case RULE_OP_MANGLE_REPLACE_NP1:
+            case RULE_OP_MANGLE_REPLACE_NM1:
+            case RULE_OP_REJECT_LESS:
+            case RULE_OP_REJECT_GREATER:
+                NEXT_RULEPOS(rule_pos);
+                NEXT_RPTOI(rule, rule_pos, temp_int);
+                new_rule[new_rule_len++] = temp_int;
+                break;
+
+            // Character
+            case RULE_OP_MANGLE_APPEND:
+            case RULE_OP_MANGLE_PREPEND:
+            case RULE_OP_MANGLE_PURGECHAR:
+            case RULE_OP_REJECT_CONTAIN:
+            case RULE_OP_REJECT_NOT_CONTAIN:
+            case RULE_OP_REJECT_EQUAL_FIRST:
+            case RULE_OP_REJECT_EQUAL_LAST:
+                NEXT_RULEPOS(rule_pos);
+                new_rule[new_rule_len++] = rule[rule_pos];
+                break;
+
+            // Character + Character
+            case RULE_OP_MANGLE_REPLACE:
+                NEXT_RULEPOS(rule_pos);
+                new_rule[new_rule_len++] = rule[rule_pos];
+
+                NEXT_RULEPOS(rule_pos);
+                new_rule[new_rule_len++] = rule[rule_pos];
+                break;
+
+            // Integer + Integer
+            case RULE_OP_MANGLE_EXTRACT:
+            case RULE_OP_MANGLE_OMIT:
+            case RULE_OP_MANGLE_SWITCH_AT:
+                NEXT_RULEPOS(rule_pos);
+                NEXT_RPTOI(rule, rule_pos, temp_int);
+                new_rule[new_rule_len++] = temp_int;
+
+                NEXT_RULEPOS(rule_pos);
+                NEXT_RPTOI(rule, rule_pos, temp_int);
+                new_rule[new_rule_len++] = temp_int;
+                break;
+
+            // Integer + Character
+            case RULE_OP_MANGLE_INSERT:
+            case RULE_OP_MANGLE_OVERSTRIKE:
+            case RULE_OP_REJECT_EQUAL_AT:
+            case RULE_OP_REJECT_CONTAINS:
+                NEXT_RULEPOS(rule_pos);
+                NEXT_RPTOI(rule, rule_pos, temp_int);
+                new_rule[new_rule_len++] = temp_int;
+
+                NEXT_RULEPOS(rule_pos);
+                new_rule[new_rule_len++] = rule[rule_pos];
+                break;
+
+            // Memory write
+            case RULE_OP_MEMORIZE_WORD:
+                mem_len = 1;
+                break;
+
+            // Memory read
+            case RULE_OP_MANGLE_APPEND_MEMORY:
+            case RULE_OP_MANGLE_PREPEND_MEMORY:
+            case RULE_OP_REJECT_MEMORY:
+                if (!mem_len) { errno = MEMORY_ERROR; }
+                break;
+
+            // Memory read + Integer + Integer + Integer
+            case RULE_OP_MANGLE_EXTRACT_MEMORY:
+                if (!mem_len) { errno = MEMORY_ERROR; }
+
+                NEXT_RULEPOS(rule_pos);
+                NEXT_RPTOI(rule, rule_pos, temp_int);
+                new_rule[new_rule_len++] = temp_int;
+
+                NEXT_RULEPOS(rule_pos);
+                NEXT_RPTOI(rule, rule_pos, temp_int);
+                new_rule[new_rule_len++] = temp_int;
+
+                NEXT_RULEPOS(rule_pos);
+                NEXT_RPTOI(rule, rule_pos, temp_int);
+                new_rule[new_rule_len++] = temp_int;
+                break;
+
+            default:
+                errno = UNKNOWN_RULE_OP;
+                break;
+        }
+
+        if (errno != 0) { break; }
+    }
+
+
+    // Check for processing errors and create an error message
+    if (errno != 0) {
+        // Make sure there's room for the error message
+        new_rule = (char *)realloc(new_rule, sizeof(char) * ERROR_MESSAGE_SIZE);
+
+        if (errno == PREMATURE_END_OF_RULE) {
+            new_rule_len = snprintf(new_rule, ERROR_MESSAGE_SIZE,
+                "premature end of rule, expected char or positional value"
+            );
+
+        } else if (errno == UNKNOWN_RULE_OP) {
+            new_rule_len = snprintf(new_rule, ERROR_MESSAGE_SIZE,
+                "'%c' (position %d) is not a valid operation",
+                rule[rule_pos], rule_pos
+            );
+
+        } else if (errno == INVALID_POSITIONAL) {
+            new_rule_len = snprintf(new_rule, ERROR_MESSAGE_SIZE,
+                "'%c' (position %d) is not a valid position or length value",
+                rule[rule_pos], rule_pos
+            );
+
+        } else if (errno == MEMORY_ERROR) {
+            new_rule_len = snprintf(new_rule, ERROR_MESSAGE_SIZE,
+                "'%c' (position %d) cannot be used before memorize operation",
+                rule[rule_pos], rule_pos
+            );
+
+        } else {
+            new_rule_len = snprintf(new_rule, ERROR_MESSAGE_SIZE,
+                "unknown error %d at operation '%c' (position %d)",
+                errno, rule[rule_pos], rule_pos
+            );
+            errno = UNKNOWN_ERROR;
+        }
+    }
+
+
+    output_rule->text   = new_rule;
+    output_rule->length = new_rule_len;
+    return (errno < 0 ? errno : new_rule_len);
+}
+
+
 
 int apply_rule(char *rule, int rule_len, char *in, int in_len, char out[BLOCK_SIZE])
 {
@@ -534,8 +754,9 @@ int apply_rule(char *rule, int rule_len, char *in, int in_len, char out[BLOCK_SI
     memcpy(out, in, out_len);
 
     int errno = 0, rule_pos;
-    for (rule_pos = 0; rule_pos < rule_len && errno == 0; rule_pos++) {
-        int offset, offset2, substr_len, min_count;
+    int offset, offset2, substr_len, min_count;
+
+    for (rule_pos = 0; rule_pos < rule_len; rule_pos++) {
 
         switch (rule[rule_pos]) {
             case ' ':
@@ -910,13 +1131,14 @@ int apply_rule(char *rule, int rule_len, char *in, int in_len, char out[BLOCK_SI
                 errno = UNKNOWN_RULE_OP;
                 break;
         }
+
+        // Don't increment position if we've encountered an error
+        if (errno != 0) { break; }
     }
 
 
     // If the error flag is set, generate an error message for the user and return the error number
     if (errno != 0) {
-        printf("Got error number %d\n", errno);
-
         if (errno == REJECTED) {
             // No error message for rejections caused by rules
             // They don't result in removal of the rule itself, so no explantion required

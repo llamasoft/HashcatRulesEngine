@@ -16,12 +16,22 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <limits.h>
+#include "uthash.h"
+
+
+typedef struct {
+    char  *text;
+    size_t length;
+    UT_hash_handle hh;
+} Rule;
 
 // Input is truncated to BLOCK_SIZE - 1 bytes
 // Rules which push the output over BLOCK_SIZE - 1 are skipped
 #ifndef BLOCK_SIZE
     #define BLOCK_SIZE 64
 #endif
+
+#define ERROR_MESSAGE_SIZE 128
 
 
 enum RULE_RC {
@@ -93,7 +103,7 @@ enum RULE_RC {
 #define RULE_OP_MANGLE_DUPEBLOCK_LAST   'Y'
 #define RULE_OP_MANGLE_TITLE            'E'
 
-
+int validate_rule(Rule *input_rule, Rule *output_rule);
 int apply_rule(char *rule, int rule_len, char *in, int in_len, char out[BLOCK_SIZE]);
 
 #endif /* RP_H */
