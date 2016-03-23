@@ -86,7 +86,7 @@ int main(int argc, char **argv) {
 
 
             // Step three: add the rule
-            cur_rule = (Rule *) malloc(sizeof(Rule));
+            cur_rule = (Rule *) calloc(1, sizeof(Rule));
             cur_rule->text   = strdup(line);
             cur_rule->length = line_len;
             HASH_ADD_KEYPTR(hh, rules, cur_rule->text, cur_rule->length, cur_rule);

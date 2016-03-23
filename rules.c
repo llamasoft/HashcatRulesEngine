@@ -85,8 +85,8 @@ void mangle_upper_at(char str[BLOCK_SIZE], int offset) {
 
 // Swap the characters at offsets left and right
 void mangle_switch(char str[BLOCK_SIZE], int left, int right) {
-    char temp = str[left];
-    str[left] = str[right];
+    char temp  = str[left];
+    str[left]  = str[right];
     str[right] = temp;
 }
 
@@ -250,7 +250,7 @@ int mangle_delete_at(char str[BLOCK_SIZE], int str_len, int offset)
 // Replaces string with substr_len characters starting at offset
 int mangle_extract(char str[BLOCK_SIZE], int str_len, int offset, int substr_len)
 {
-    if (offset >= str_len || offset < 0) { return(str_len); }
+    if (offset >= str_len) { return(str_len); }
 
     // substr_len is too large, shorten it so it fits within this string
     if ((offset + substr_len) > str_len) { substr_len = str_len - offset; }
@@ -300,28 +300,31 @@ int mangle_insert(char str[BLOCK_SIZE], int str_len, int offset, char c)
 
 // Insert substr_len characters from mem starting at position mem_offset into position offset
 // str[0 .. offset - 1] + mem[mem_offset .. mem_offset + substr_len] + str[offset .. str_len]
-int mangle_insert_multi(char str[BLOCK_SIZE], int str_len, int offset, char mem[BLOCK_SIZE], int mem_len, int mem_offset, int substr_len)
+int mangle_insert_multi(
+    char str[BLOCK_SIZE], int str_len, int str_offset,
+    char mem[BLOCK_SIZE], int mem_len, int mem_offset,
+    int substr_len
+)
 {
-    if (offset > str_len || offset < 0) { return(REJECTED); }
-    if (mem_offset > mem_len) { return(REJECTED); }
+    if (str_offset > str_len) { str_offset = str_len; }
+    if ((str_len + substr_len) >= BLOCK_SIZE) { return(str_len); }
 
-    if ((str_len + substr_len) > BLOCK_SIZE) { return(REJECTED); }
-    if ((mem_offset + substr_len) > mem_len) { return(REJECTED); }
-
-    if (substr_len < 1) { return(INVALID_POSITIONAL); }
+    if (mem_offset >= mem_len) { return(str_len); }
+    if ((mem_offset + substr_len) > mem_len) { substr_len = mem_len - mem_offset; }
+    if (substr_len < 1) { return(str_len); }
 
     // Shift mem down mem_offset characters
     // This is the substring we will add to str
     //   mem[mem_offset .. mem_offset + substr_len]
     memcpy(mem, mem + mem_offset, mem_len - mem_offset);
 
-    // Append the back half of str (after offset) to mem
+    // Append the back half of str (after str_offset) to mem
     // This will become the back half of the result
-    //   mem[mem_offset .. mem_offset + substr_len] + str[offset .. str_len]
-    memcpy(mem + substr_len, str + offset, str_len - offset);
+    //   mem[mem_offset .. mem_offset + substr_len] + str[str_offset .. str_len]
+    memcpy(mem + substr_len, str + str_offset, str_len - str_offset);
 
     // Insert our result to the correct place in str
-    memcpy(str + offset, mem, str_len - offset + substr_len);
+    memcpy(str + str_offset, mem, str_len - str_offset + substr_len);
 
     return(str_len + substr_len);
 }
@@ -533,16 +536,19 @@ int mangle_title(char str[BLOCK_SIZE], int str_len)
 //   e.g. removing noops, converting positionals to raw values, etc
 // In theory, this will make apply_rule be faster as it will require fewer validations
 int validate_rule(Rule *input_rule, Rule *output_rule) {
-    if (input_rule == NULL) { return (INVALID_INPUT); }
+    if (input_rule == NULL) { return(INVALID_INPUT); }
 
     char *rule     = input_rule->text;
     int   rule_len = input_rule->length;
-    if (rule == NULL) { return (INVALID_INPUT); }
-    if (rule_len < 1) { return (INVALID_INPUT); }
+    if (rule == NULL) { return(INVALID_INPUT); }
+    if (rule_len < 1) { return(INVALID_INPUT); }
 
 
     // Our new rule is guaranteed to be no larger than the current rule
     // Note: realloc(NULL, size) is the same as malloc(size)
+    if (output_rule == NULL) {
+        output_rule = (Rule *)calloc(1, sizeof(Rule));
+    }
     char *new_rule     = (char *)realloc(output_rule->text, sizeof(char) * output_rule->length);
     int   new_rule_len = 0;
     memset(new_rule, 0, rule_len);
@@ -558,7 +564,7 @@ int validate_rule(Rule *input_rule, Rule *output_rule) {
         new_rule[new_rule_len++] = rule[rule_pos];
 
         switch (rule[rule_pos]) {
-            // Whitespace and noops
+            // Whitespace and noops are skipped
             case ' ':
             case '\t':
             case '\r':
@@ -735,6 +741,362 @@ int validate_rule(Rule *input_rule, Rule *output_rule) {
     output_rule->text   = new_rule;
     output_rule->length = new_rule_len;
     return (errno < 0 ? errno : new_rule_len);
+}
+
+
+int fast_apply_rule(Rule *input_rule, char *input_word, int input_len, char out[BLOCK_SIZE])
+{
+    if (input_rule       == NULL) { return(INVALID_INPUT); }
+    if (input_rule->text == NULL) { return(INVALID_INPUT); }
+    // Rule length not checked, noop rules are valid but empty
+    char *rule     = input_rule->text;
+    int   rule_len = input_rule->length;
+
+    if (input_word == NULL) { return(INVALID_INPUT); }
+    if (input_len  <     1) { return(INVALID_INPUT); }
+
+    int  mem_len = -1;
+    char mem[BLOCK_SIZE];
+
+    int out_len = (input_len < BLOCK_SIZE ? input_len : BLOCK_SIZE - 1);
+    memcpy(out, input_word, out_len);
+
+
+    // Operation parameters
+    int errno, rule_pos;
+    for (rule_pos = 0, errno = 0; rule_pos < rule_len && !errno; rule_pos++) {
+        switch (rule[rule_pos]) {
+            case ' ':
+            case '\t':
+            case '\r':
+            case RULE_OP_MANGLE_NOOP: {
+                // After validation, noops shouldn't exist in the rule
+                // Just in case though, we'll skip them
+                break;
+            }
+            case RULE_OP_MANGLE_LREST: {
+                mangle_lower_all(out, out_len);
+                break;
+            }
+            case RULE_OP_MANGLE_UREST: {
+                mangle_upper_all(out, out_len);
+                break;
+            }
+            case RULE_OP_MANGLE_LREST_UFIRST: {
+                mangle_lower_all(&out[1], out_len - 1);
+                if (out_len > 0) { mangle_upper_at(out, 0); }
+                break;
+            }
+            case RULE_OP_MANGLE_UREST_LFIRST: {
+                mangle_upper_all(&out[1], out_len - 1);
+                if (out_len > 0) { mangle_lower_at(out, 0); }
+                break;
+            }
+            case RULE_OP_MANGLE_TREST: {
+                mangle_toggle_all(out, out_len);
+                break;
+            }
+            case RULE_OP_MANGLE_TOGGLE_AT: {
+                char offset = rule[++rule_pos];
+
+                if (out_len > offset) { mangle_toggle_at(out, offset); }
+                break;
+            }
+            case RULE_OP_MANGLE_REVERSE: {
+                mangle_reverse(out, out_len);
+                break;
+            }
+            case RULE_OP_MANGLE_DUPEWORD: {
+                out_len = mangle_double(out, out_len);
+                break;
+            }
+            case RULE_OP_MANGLE_DUPEWORD_TIMES: {
+                char times = rule[++rule_pos];
+
+                out_len = mangle_double_times(out, out_len, times);
+                break;
+            }
+            case RULE_OP_MANGLE_REFLECT: {
+                mangle_reflect(out, out_len);
+                break;
+            }
+            case RULE_OP_MANGLE_ROTATE_LEFT: {
+                mangle_rotate_left(out, out_len);
+                break;
+            }
+            case RULE_OP_MANGLE_ROTATE_RIGHT: {
+                mangle_rotate_right(out, out_len);
+                break;
+            }
+            case RULE_OP_MANGLE_APPEND: {
+                char chr = rule[++rule_pos];
+
+                out_len = mangle_append(out, out_len, chr);
+                break;
+            }
+            case RULE_OP_MANGLE_PREPEND: {
+                char chr = rule[++rule_pos];
+
+                out_len = mangle_prepend(out, out_len, chr);
+                break;
+            }
+            case RULE_OP_MANGLE_DELETE_FIRST: {
+                out_len = mangle_delete_at(out, out_len, 0);
+                break;
+            }
+            case RULE_OP_MANGLE_DELETE_LAST: {
+                out_len = mangle_delete_at(out, out_len, out_len - 1);
+                break;
+            }
+            case RULE_OP_MANGLE_DELETE_AT: {
+                char offset = rule[++rule_pos];
+
+                out_len = mangle_delete_at(out, out_len, offset);
+                break;
+            }
+            case RULE_OP_MANGLE_EXTRACT: {
+                char offset     = rule[++rule_pos];
+                char substr_len = rule[++rule_pos];
+
+                out_len = mangle_extract(out, out_len, offset, substr_len);
+                break;
+            }
+            case RULE_OP_MANGLE_OMIT: {
+                char offset     = rule[++rule_pos];
+                char substr_len = rule[++rule_pos];
+
+                out_len = mangle_omit(out, out_len, offset, substr_len);
+                break;
+            }
+            case RULE_OP_MANGLE_INSERT: {
+                char offset = rule[++rule_pos];
+                char chr    = rule[++rule_pos];
+
+                out_len = mangle_insert(out, out_len, offset, chr);
+                break;
+            }
+            case RULE_OP_MANGLE_OVERSTRIKE: {
+                char offset = rule[++rule_pos];
+                char chr    = rule[++rule_pos];
+
+                mangle_overstrike(out, out_len, offset, chr);
+                break;
+            }
+            case RULE_OP_MANGLE_TRUNCATE_AT: {
+                char offset = rule[++rule_pos];
+
+                out_len = mangle_truncate_at(out, out_len, offset);
+                break;
+            }
+            case RULE_OP_MANGLE_REPLACE: {
+                char search  = rule[++rule_pos];
+                char replace = rule[++rule_pos];
+
+                mangle_replace(out, out_len, search, replace);
+                break;
+            }
+            case RULE_OP_MANGLE_PURGECHAR: {
+                char search = rule[++rule_pos];
+
+                out_len = mangle_purgechar(out, out_len, search);
+                break;
+            }
+            case RULE_OP_MANGLE_DUPECHAR_FIRST: {
+                char substr_len = rule[++rule_pos];
+
+                out_len = mangle_dupechar_at(out, out_len, 0, substr_len);
+                break;
+            }
+            case RULE_OP_MANGLE_DUPECHAR_LAST: {
+                char substr_len = rule[++rule_pos];
+
+                out_len = mangle_dupechar_at(out, out_len, out_len - 1, substr_len);
+                break;
+            }
+            case RULE_OP_MANGLE_DUPECHAR_ALL: {
+                out_len = mangle_dupechar(out, out_len);
+                break;
+            }
+            case RULE_OP_MANGLE_DUPEBLOCK_FIRST: {
+                char substr_len = rule[++rule_pos];
+
+                out_len = mangle_dupeblock_prepend(out, out_len, substr_len);
+                break;
+            }
+            case RULE_OP_MANGLE_DUPEBLOCK_LAST: {
+                char substr_len = rule[++rule_pos];
+
+                out_len = mangle_dupeblock_append(out, out_len, substr_len);
+                break;
+            }
+            case RULE_OP_MANGLE_SWITCH_FIRST: {
+                if (out_len > 2) { mangle_switch_at(out, out_len, 0, 1); }
+                break;
+            }
+            case RULE_OP_MANGLE_SWITCH_LAST: {
+                if (out_len > 2) { mangle_switch_at(out, out_len, out_len - 1, out_len - 2); }
+                break;
+            }
+            case RULE_OP_MANGLE_SWITCH_AT: {
+                int offset1 = rule[++rule_pos];
+                int offset2 = rule[++rule_pos];
+
+                mangle_switch_at_check(out, out_len, offset1, offset2);
+                break;
+            }
+            case RULE_OP_MANGLE_CHR_SHIFTL: {
+                char offset = rule[++rule_pos];
+
+                mangle_chr_shiftl((uint8_t *) out, out_len, offset);
+                break;
+            }
+            case RULE_OP_MANGLE_CHR_SHIFTR: {
+                char offset = rule[++rule_pos];
+
+                mangle_chr_shiftr((uint8_t *) out, out_len, offset);
+                break;
+            }
+            case RULE_OP_MANGLE_CHR_INCR: {
+                char offset = rule[++rule_pos];
+
+                mangle_chr_incr((uint8_t *) out, out_len, offset);
+                break;
+            }
+            case RULE_OP_MANGLE_CHR_DECR: {
+                char offset = rule[++rule_pos];
+
+                mangle_chr_decr((uint8_t *) out, out_len, offset);
+                break;
+            }
+            case RULE_OP_MANGLE_REPLACE_NP1: {
+                char offset = rule[++rule_pos];
+
+                if ((offset + 1) < out_len) {
+                    mangle_overstrike(out, out_len, offset, out[offset + 1]);
+                }
+                break;
+            }
+            case RULE_OP_MANGLE_REPLACE_NM1: {
+                char offset = rule[++rule_pos];
+
+                if (offset >= 1 && offset < out_len) {
+                    mangle_overstrike(out, out_len, offset, out[offset - 1]);
+                }
+                break;
+            }
+            case RULE_OP_MANGLE_TITLE: {
+                mangle_title(out, out_len);
+                break;
+            }
+            case RULE_OP_MANGLE_EXTRACT_MEMORY: {
+                if (mem_len < 0) { errno = MEMORY_ERROR; break; }
+
+                char mem_offset = rule[++rule_pos];
+                char substr_len = rule[++rule_pos];
+                char out_offset = rule[++rule_pos];
+
+                // If this results in a negative value, the memory was such that this output becomes rejected
+                out_len = mangle_insert_multi(out, out_len, out_offset, mem, mem_len, mem_offset, substr_len);
+                break;
+            }
+            case RULE_OP_MANGLE_APPEND_MEMORY: {
+                if (mem_len < 0) { errno = MEMORY_ERROR; break; }
+                if ((out_len + mem_len) >= BLOCK_SIZE) { break; }
+
+                memcpy(out + out_len, mem, mem_len);
+                out_len += mem_len;
+                break;
+            }
+            case RULE_OP_MANGLE_PREPEND_MEMORY: {
+                if (mem_len < 0) { errno = MEMORY_ERROR; break; }
+                if ((out_len + mem_len) >= BLOCK_SIZE) { break; }
+
+                // Use the unused portion of mem as a buffer area
+                // We know it fits because (mem_len + out_len <= BLOCK_SIZE)
+                memcpy(mem + mem_len, out, out_len);
+                out_len += mem_len;
+                memcpy(out, mem, out_len);
+                break;
+            }
+            case RULE_OP_MEMORIZE_WORD: {
+                memcpy(mem, out, out_len);
+                mem_len = out_len;
+                break;
+            }
+            case RULE_OP_REJECT_LESS: {
+                char target_len = rule[++rule_pos];
+
+                if ( !(out_len <= target_len) ) { errno = REJECTED; }
+                break;
+            }
+            case RULE_OP_REJECT_GREATER: {
+                char target_len = rule[++rule_pos];
+
+                if ( !(out_len >= target_len) ) { errno = REJECTED; }
+                break;
+            }
+            case RULE_OP_REJECT_CONTAIN: {
+                char chr = rule[++rule_pos];
+
+                if (memchr(out, chr, out_len) != NULL) { errno = REJECTED; }
+                break;
+            }
+            case RULE_OP_REJECT_NOT_CONTAIN: {
+                char chr = rule[++rule_pos];
+
+                if (memchr(out, chr, out_len) == NULL) { errno = REJECTED; }
+                break;
+            }
+            case RULE_OP_REJECT_EQUAL_FIRST: {
+                char chr = rule[++rule_pos];
+
+                if (out_len < 1 || out[0] != chr) { errno = REJECTED; }
+                break;
+            }
+            case RULE_OP_REJECT_EQUAL_LAST: {
+                char chr = rule[++rule_pos];
+
+                if (out_len < 1 || out[out_len - 1] != chr) { errno = REJECTED; }
+                break;
+            }
+            case RULE_OP_REJECT_EQUAL_AT: {
+                char offset = rule[++rule_pos];
+                char chr    = rule[++rule_pos];
+
+                if (offset >= out_len || out[offset] != chr) { errno = REJECTED; }
+                break;
+            }
+            case RULE_OP_REJECT_CONTAINS: {
+                char min_count = rule[++rule_pos];
+                char chr       = rule[++rule_pos];
+
+                if (min_count > out_len) { errno = REJECTED; }
+
+                int count = 0;
+                for (int pos = 0; pos < out_len; pos++) {
+                    if (out[pos] == chr) { count++; }
+                    if (count >= min_count) { break; }
+                }
+
+                if (count < min_count) { errno = REJECTED; }
+                break;
+            }
+            case RULE_OP_REJECT_MEMORY: {
+                if (mem_len < 0) { errno = MEMORY_ERROR; break; }
+                if (out_len == mem_len && memcmp(out, mem, out_len) == 0) { errno = REJECTED; }
+                break;
+            }
+            default:
+                errno = UNKNOWN_RULE_OP;
+                break;
+        }
+    }
+
+    if (errno != 0) { return(errno); }
+
+    // Add the null terminator and null extra bytes (just in case)
+    memset(out + out_len, 0, BLOCK_SIZE - out_len);
+    return(out_len);
 }
 
 
