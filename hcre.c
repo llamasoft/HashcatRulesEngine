@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include <stdlib.h>
 #include <stdio.h>
+#include <locale.h>
 #include <string.h>
 #include "rules.h"
 
@@ -47,6 +48,10 @@ void usage(char *hcre) {
 int main(int argc, char **argv) {
     if (argc <= 1) { usage(argv[0]); return 0; }
 
+    // Allows rule upper/lower/toggle to follow locale
+    setlocale(LC_CTYPE, "");
+
+
     // Our hash structure's head node
     RuleHash *rules = NULL;
 
@@ -91,7 +96,9 @@ int main(int argc, char **argv) {
             line_num++;
 
             // Trim trailing newline by overwriting it will a NULL terminator
-            line[--line_len] = 0;
+            while (line[line_len - 1] == '\n' || line[line_len - 1] == '\r') {
+                line[--line_len] = 0;
+            }
 
             // Skip empty lines and commented lines
             if (line_len ==  0 ) { continue; }
