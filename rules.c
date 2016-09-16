@@ -552,7 +552,7 @@ Rule *clone_rule(Rule *source) {
 
     rtn->text = (char *)calloc(1, (source->length + 1) * sizeof(char));
     if (rtn->text == NULL) {
-        fprintf(stderr, "clone_rule() failed to calloc() a string of length %d\n", source->length + 1);
+        fprintf(stderr, "clone_rule() failed to calloc() a string of length %zu\n", source->length + 1);
         return NULL;
     }
     memcpy(rtn->text, source->text, source->length);
